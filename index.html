@@ -214,6 +214,7 @@ input[type=number]{width:8em;}
   <ul>
     <li><a href="#game">対局</a></li>
     <li><a href="#table">早見表</a></li>
+    <li><a href="#quick">クイック問題</a></li>
     <li><a href="#fu">符の数え方</a></li>
     <li><a href="#yaku">役と翻</a></li>
     <li><a href="#calc">計算機</a></li>
@@ -252,6 +253,20 @@ input[type=number]{width:8em;}
     </div>
   </div>
   <div class="scroll" id="tbl"></div>
+</section>
+
+<section id="quick">
+  <h2>クイック点数計算</h2>
+  <p class="lead">対局とは関係なく、和了形を見て翻数、符、点数の順に答える練習問題です。</p>
+  <div class="hand ghand" id="qq-hand"></div>
+  <div class="chips" id="qq-chips"></div>
+  <div class="box">
+    <div class="stage" id="qs1"><div class="row"><label class="f">翻数（ドラ込み）<input type="number" id="qq-han" inputmode="numeric" min="1"></label><button class="btn" type="button" id="qq-bhan">答え合わせ</button></div><div id="qq-ohan" aria-live="polite"></div></div>
+    <div class="stage hidden" id="qs2"><div class="row"><label class="f">符（切り上げ後）<input type="number" id="qq-fu" inputmode="numeric" step="5" min="20"></label><button class="btn" type="button" id="qq-bfu">答え合わせ</button></div><div id="qq-ofu" aria-live="polite"></div></div>
+    <div class="stage hidden" id="qs3"><p class="q" id="qq-p3"></p><div class="row" id="qq-in"></div><div class="row" style="margin-top:12px"><button class="btn" type="button" id="qq-check">答え合わせ</button></div><div id="qq-out" aria-live="polite"></div></div>
+    <div class="row" style="margin-top:20px"><button class="btn sub" id="qq-next" type="button">次の問題</button><span class="stat" id="qq-stat"></span></div>
+  </div>
+  <p class="note" style="margin-top:10px">横向きの牌は鳴いた面子です。場風は東、裏ドラ・赤ドラ・一発・カンはなし。待ちが何通りにも取れる手は、いちばん高くなる取り方で採点します。</p>
 </section>
 
 <section id="fu">
@@ -638,6 +653,91 @@ function calcFu(h){
 
 function show(id,on){ $(id).classList.toggle('hidden',!on); }
 function verdict(ok,txt){ return `<p class="verdict ${ok?'ok':'ng'}">${ok?'正解！':'不正解'}　${txt}</p>`; }
+
+/* ----- quick quiz ----- */
+let QQ, qqDone={};
+function qqStat(){
+  const F=stats.full;
+  $('#qq-stat').textContent = F.han.t ? `翻 ${F.han.c}/${F.han.t}　符 ${F.fu.c}/${F.fu.t}　点 ${F.pt.c}/${F.pt.t}` : '';
+}
+function qqGen(){
+  for(let t=0;t<400;t++){
+    const p=genProblem(); if(!p) continue;
+    if(p.melds.some(m=>m.type==='kantsu')) continue;
+    const win=t2k(p.winMeld.tiles[p.winIdx]);
+    const closed=[];
+    p.melds.filter(m=>!m.open).forEach(m=>m.tiles.forEach(x=>closed.push(t2k(x))));
+    p.pair.tiles.forEach(x=>closed.push(t2k(x)));
+    closed.splice(closed.indexOf(win),1);
+    const open=p.melds.filter(m=>m.open).map(m=>{ const ks=m.tiles.map(t2k).sort((a,b)=>a-b); return {type:m.type,ks,calledK:ks[0]}; });
+    const save={players:G.players,dealer:G.dealer,wall:G.wall,doraInd:G.doraInd,uraInd:G.uraInd};
+    const allK=[...closed,win,...open.flatMap(m=>m.ks)];
+    let ura; do{ ura=rnd(34); } while(allK.includes(t2k(nextTile(k2t(ura)))));
+    let res=null;
+    try{
+      G.players=[{melds:open,riichi:p.riichi}]; G.dealer=(5-p.jikaze)%4; G.wall=[0]; G.doraInd=t2k(p.doraInd); G.uraInd=ura;
+      res=evaluate(0,closed,win,p.tsumo);
+    } finally { Object.assign(G,save); }
+    if(!res) continue;
+    return {...res, jikaze:p.jikaze, riichi:p.riichi, doraIndK:t2k(p.doraInd)};
+  }
+}
+function qqNew(){
+  QQ=qqGen(); qqDone={};
+  const q=QQ;
+  const melds=q.called.map(m=>`<div class="grp"><div class="ts">${m.ks.map((k,i)=>tileHTML(k2t(k),false,i===0)).join('')}</div></div>`).join('');
+  $('#qq-hand').innerHTML = `<div class="grp"><div class="ts">${q.closed.map(k=>tileHTML(k2t(k))).join('')}</div></div><div class="grp"><div class="ts">${tileHTML(k2t(q.winK),true)}</div></div>${melds}`;
+  $('#qq-chips').innerHTML = `<span class="chip">場風 <b>東</b></span><span class="chip">自風 <b>${HON[q.jikaze]}</b>（${q.oya?'親':'子'}）</span>`+
+    `<span class="chip"><b>${q.tsumo?'ツモ':'ロン'}</b>和了</span>`+(q.riichi?`<span class="chip"><b>リーチ</b>あり</span>`:'')+
+    `<span class="chip dora">ドラ表示牌 ${tileHTML(k2t(q.doraIndK))}</span>`;
+  ['#qq-ohan','#qq-ofu','#qq-out'].forEach(id=>$(id).innerHTML='');
+  $('#qq-han').value=''; $('#qq-fu').value='';
+  show('#qs2',false); show('#qs3',false);
+  qqStat();
+}
+function qqTally(key,ok){ if(qqDone[key]) return; qqDone[key]=true; stats.full[key].t++; if(ok) stats.full[key].c++; saveStats(); qqStat(); }
+function qqHan(){
+  const v=parseInt($('#qq-han').value,10), q=QQ;
+  if(isNaN(v)){ $('#qq-ohan').innerHTML='<p class="verdict ng">翻数を数字で入力してください。</p>'; return; }
+  const ok = q.yakuman ? v>=13 : v===q.han; qqTally('han',ok);
+  let li=q.yaku.map(([a,b])=>`<li><span>${a}</span><span>${typeof b==='number'?b+'翻':b}</span></li>`).join('');
+  if(!q.yakuman) li+=`<li><span>ドラ（${kName(t2k(nextTile(k2t(q.doraIndK))))}）× ${q.doraN}</span><span>${q.doraN}翻</span></li>`;
+  const tot = q.yakuman?'役満':q.han+'翻';
+  $('#qq-ohan').innerHTML = verdict(ok,`答えは${tot}`)+`<ul class="brk">${li}<li class="tot"><span>合計</span><span>${tot}</span></li></ul>`;
+  show('#qs2',true); $('#qq-fu').focus();
+}
+function qqFu(){
+  const v=parseInt($('#qq-fu').value,10), q=QQ, F=q.fu;
+  if(isNaN(v)){ $('#qq-ofu').innerHTML='<p class="verdict ng">符を数字で入力してください。</p>'; return; }
+  const ok=v===F.total; qqTally('fu',ok);
+  const li=F.items.map(([a,b])=>`<li><span>${a}</span><span>${b}符</span></li>`).join('');
+  const roundTxt = F.raw!==F.total ? `${F.raw}符 → ${F.total}符` : `${F.total}符`;
+  $('#qq-ofu').innerHTML = verdict(ok,`答えは${F.total}符`)+(q.h.wait?`<p class="note" style="margin:4px 0 0">待ち：${WAITN[q.h.wait]}</p>`:'')+
+    `<ul class="brk">${li}<li class="tot"><span>合計（${F.note||'10符未満切り上げ'}）</span><span>${roundTxt}</span></li></ul>`;
+  if($('#qs3').classList.contains('hidden')){
+    const {han,oya,tsumo}=q, fu=F.total;
+    $('#qq-p3').innerHTML = `<b>${oya?'親':'子'}</b>が <b>${q.yakuman?'役満':han+'翻'} ${fu}符</b> を <b>${tsumo?'ツモ':'ロン'}</b>${han>=5?'<br><span class="note">5翻以上なので符は点数に影響しません。</span>':''}`;
+    $('#qq-in').innerHTML = !tsumo ? `<label class="f">ロンの点数<input type="number" id="qq-a1" inputmode="numeric" step="100"></label>`
+      : oya ? `<label class="f">子それぞれの支払い（○○オール）<input type="number" id="qq-a1" inputmode="numeric" step="100"></label>`
+      : `<label class="f">子の支払い<input type="number" id="qq-a1" inputmode="numeric" step="100"></label><label class="f">親の支払い<input type="number" id="qq-a2" inputmode="numeric" step="100"></label>`;
+    document.querySelectorAll('#qq-in input').forEach(i=>i.addEventListener('keydown',e=>{ if(e.key==='Enter') qqCheck(); }));
+    show('#qs3',true); $('#qq-a1').focus();
+  }
+}
+function qqCheck(){
+  const q=QQ, {r,s}=steps(q.fu.total||30,q.han,q.oya,q.tsumo);
+  const a1=parseInt(($('#qq-a1')||{}).value,10), a2=parseInt(($('#qq-a2')||{}).value,10);
+  if(isNaN(a1) || (q.tsumo && !q.oya && isNaN(a2))){ $('#qq-out').innerHTML='<p class="verdict ng">点数を数字で入力してください。</p>'; return; }
+  const ok = !q.tsumo ? a1===r.ron : q.oya ? a1===r.all : (a1===r.ko && a2===r.oyaPay);
+  qqTally('pt',ok);
+  $('#qq-out').innerHTML = verdict(ok,`答えは${label(r,q.oya,q.tsumo)}${r.name?'（'+r.name+'）':''}`)+`<div class="calc-steps">${s.join('<br>')}</div>`;
+}
+$('#qq-bhan').addEventListener('click',qqHan);
+$('#qq-han').addEventListener('keydown',e=>{ if(e.key==='Enter') qqHan(); });
+$('#qq-bfu').addEventListener('click',qqFu);
+$('#qq-fu').addEventListener('keydown',e=>{ if(e.key==='Enter') qqFu(); });
+$('#qq-check').addEventListener('click',qqCheck);
+$('#qq-next').addEventListener('click',()=>{ qqNew(); $('#qq-hand').scrollIntoView({block:'nearest'}); });
 
 /* ================= GAME ================= */
 const SEATN = ['あなた','Bさん','Cさん','Dさん'];
@@ -1166,6 +1266,7 @@ $('#g-auto').addEventListener('change',e=>{
     gmsg('リーチがかかっているので、次のあなたの番から自分で打ちます');
   }
 });
+qqNew();
 document.querySelectorAll('[data-spd]').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('[data-spd]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
   G.speed=+b.dataset.spd;
