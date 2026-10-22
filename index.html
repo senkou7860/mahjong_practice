@@ -181,7 +181,31 @@ input[type=number]{width:8em;}
 .ghand .ts{flex-wrap:wrap;}
 .deltas{list-style:none;padding:0;margin:12px 0;}
 .deltas li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed var(--line);padding:4px 0;}
+.qsum{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px;position:relative;}
+.qsum:empty{display:none;}
+.qsum ~ .stage{border-top:0;margin-top:0;padding-top:0;}
+.sumi{border:1px solid var(--line);border-radius:999px;padding:3px 12px;font-weight:700;font-size:.92rem;cursor:pointer;user-select:none;}
+.sumi .caret{margin-left:6px;font-size:.75em;opacity:.7;}
+.sumi .pop{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);max-width:440px;z-index:30;background:var(--surface);color:var(--ink);font-weight:400;font-size:.92rem;border:1px solid var(--line);border-radius:10px;padding:4px 14px 12px;box-shadow:0 8px 24px rgba(0,0,0,.18);cursor:auto;user-select:text;}
+.sumi.open .pop{display:block;}
+.sumi.open{background:var(--bg);}
+@media (hover:hover){ .sumi:hover .pop{display:block;} }
+.sumi.ok{color:var(--ok);border-color:var(--ok);}
+.sumi.ng{color:var(--ng);border-color:var(--ng);}
+.sumi small{font-weight:500;color:var(--muted);}
+.detail{margin-top:14px;}
+.detail summary{cursor:pointer;font-weight:700;}
+.detail h4{margin:12px 0 4px;font-size:.95rem;}
 .plus{color:var(--ok);font-weight:700;}.minus{color:var(--ng);font-weight:700;}
+.final{margin:4px 0 0;padding:14px 16px;border-radius:10px;border:2px solid var(--line);}
+.final.ok{border-color:var(--ok);}
+.final.ng{border-color:var(--ng);}
+.final .fv{font-family:var(--serif);font-weight:800;font-size:1.6rem;line-height:1.3;}
+.final.ok .fv{color:var(--ok);}
+.final.ng .fv{color:var(--ng);}
+.final .fa b{font-size:1.25rem;}
+.final .fm{color:var(--muted);}
+.final .fs{margin-top:6px;font-size:.9rem;}
 .chk{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:.92rem;cursor:pointer;}
 .chk input{width:18px;height:18px;accent-color:var(--felt);margin:0;}
 .review{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
@@ -261,9 +285,11 @@ input[type=number]{width:8em;}
   <div class="hand ghand" id="qq-hand"></div>
   <div class="chips" id="qq-chips"></div>
   <div class="box">
+    <div class="qsum" id="qq-sum" aria-live="polite"></div>
     <div class="stage" id="qs1"><div class="row"><label class="f">翻数（ドラ込み）<input type="number" id="qq-han" inputmode="numeric" min="1"></label><button class="btn" type="button" id="qq-bhan">答え合わせ</button></div><div id="qq-ohan" aria-live="polite"></div></div>
     <div class="stage hidden" id="qs2"><div class="row"><label class="f">符（切り上げ後）<input type="number" id="qq-fu" inputmode="numeric" step="5" min="20"></label><button class="btn" type="button" id="qq-bfu">答え合わせ</button></div><div id="qq-ofu" aria-live="polite"></div></div>
     <div class="stage hidden" id="qs3"><p class="q" id="qq-p3"></p><div class="row" id="qq-in"></div><div class="row" style="margin-top:12px"><button class="btn" type="button" id="qq-check">答え合わせ</button></div><div id="qq-out" aria-live="polite"></div></div>
+    <div id="qq-detail"></div>
     <div class="row" style="margin-top:20px"><button class="btn sub" id="qq-next" type="button">次の問題</button><span class="stat" id="qq-stat"></span></div>
   </div>
   <p class="note" style="margin-top:10px">横向きの牌は鳴いた面子です。場風は東、裏ドラ・赤ドラ・一発・カンはなし。待ちが何通りにも取れる手は、いちばん高くなる取り方で採点します。</p>
@@ -652,6 +678,16 @@ function calcFu(h){
 }
 
 function show(id,on){ $(id).classList.toggle('hidden',!on); }
+function sumItem(label,ok,ans,mine,detail){ return `<span class="sumi ${ok?'ok':'ng'}" role="button" tabindex="0" aria-label="${label}の内訳を表示">${label} ${ok?'○':'×'} ${ans}${ok?'':`<small>（あなた ${mine}）</small>`}<span class="caret" aria-hidden="true">▾</span><span class="pop">${detail||''}</span></span>`; }
+document.addEventListener('click',e=>{
+  const c=e.target.closest('.sumi');
+  document.querySelectorAll('.sumi.open').forEach(x=>{ if(x!==c) x.classList.remove('open'); });
+  if(c && !e.target.closest('.pop')) c.classList.toggle('open');
+});
+document.addEventListener('keydown',e=>{
+  if((e.key==='Enter'||e.key===' ') && e.target.classList && e.target.classList.contains('sumi')){ e.preventDefault(); e.target.click(); }
+  if(e.key==='Escape') document.querySelectorAll('.sumi.open').forEach(x=>x.classList.remove('open'));
+});
 function verdict(ok,txt){ return `<p class="verdict ${ok?'ok':'ng'}">${ok?'正解！':'不正解'}　${txt}</p>`; }
 
 /* ----- quick quiz ----- */
@@ -690,12 +726,16 @@ function qqNew(){
   $('#qq-chips').innerHTML = `<span class="chip">場風 <b>東</b></span><span class="chip">自風 <b>${HON[q.jikaze]}</b>（${q.oya?'親':'子'}）</span>`+
     `<span class="chip"><b>${q.tsumo?'ツモ':'ロン'}</b>和了</span>`+(q.riichi?`<span class="chip"><b>リーチ</b>あり</span>`:'')+
     `<span class="chip dora">ドラ表示牌 ${tileHTML(k2t(q.doraIndK))}</span>`;
-  ['#qq-ohan','#qq-ofu','#qq-out'].forEach(id=>$(id).innerHTML='');
+  ['#qq-ohan','#qq-ofu','#qq-out','#qq-sum','#qq-detail'].forEach(id=>$(id).innerHTML='');
   $('#qq-han').value=''; $('#qq-fu').value='';
-  show('#qs2',false); show('#qs3',false);
+  show('#qs1',true); show('#qs2',false); show('#qs3',false);
   qqStat();
 }
-function qqTally(key,ok){ if(qqDone[key]) return; qqDone[key]=true; stats.full[key].t++; if(ok) stats.full[key].c++; saveStats(); qqStat(); }
+function qqTally(key,ok){ if(key in qqDone) return; qqDone[key]=ok; stats.full[key].t++; if(ok) stats.full[key].c++; saveStats(); qqStat(); }
+function finalCard(ok,ans,mine,doneMap){
+  const n=Object.values(doneMap).filter(Boolean).length, t=Object.keys(doneMap).length;
+  return `<div class="final ${ok?'ok':'ng'}" role="status"><div class="fv">${ok?'正解！':'不正解'}</div><div class="fa">点数の答え <b>${ans}</b></div>${ok?'':`<div class="fm">あなたの答え ${mine}</div>`}<div class="fs">この問題の結果：翻・符・点の ${t}問中 ${n}問正解　<span class="note">上の札に触れると内訳が見られます</span></div></div>`;
+}
 function qqHan(){
   const v=parseInt($('#qq-han').value,10), q=QQ;
   if(isNaN(v)){ $('#qq-ohan').innerHTML='<p class="verdict ng">翻数を数字で入力してください。</p>'; return; }
@@ -703,8 +743,9 @@ function qqHan(){
   let li=q.yaku.map(([a,b])=>`<li><span>${a}</span><span>${typeof b==='number'?b+'翻':b}</span></li>`).join('');
   if(!q.yakuman) li+=`<li><span>ドラ（${kName(t2k(nextTile(k2t(q.doraIndK))))}）× ${q.doraN}</span><span>${q.doraN}翻</span></li>`;
   const tot = q.yakuman?'役満':q.han+'翻';
-  $('#qq-ohan').innerHTML = verdict(ok,`答えは${tot}`)+`<ul class="brk">${li}<li class="tot"><span>合計</span><span>${tot}</span></li></ul>`;
-  show('#qs2',true); $('#qq-fu').focus();
+  q.dHan = `<h4>翻の内訳</h4><ul class="brk">${li}<li class="tot"><span>合計</span><span>${tot}</span></li></ul>`;
+  $('#qq-sum').insertAdjacentHTML('beforeend', sumItem('翻',ok,tot,v+'翻',q.dHan));
+  $('#qq-ohan').innerHTML=''; show('#qs1',false); show('#qs2',true); $('#qq-fu').focus();
 }
 function qqFu(){
   const v=parseInt($('#qq-fu').value,10), q=QQ, F=q.fu;
@@ -712,17 +753,16 @@ function qqFu(){
   const ok=v===F.total; qqTally('fu',ok);
   const li=F.items.map(([a,b])=>`<li><span>${a}</span><span>${b}符</span></li>`).join('');
   const roundTxt = F.raw!==F.total ? `${F.raw}符 → ${F.total}符` : `${F.total}符`;
-  $('#qq-ofu').innerHTML = verdict(ok,`答えは${F.total}符`)+(q.h.wait?`<p class="note" style="margin:4px 0 0">待ち：${WAITN[q.h.wait]}</p>`:'')+
-    `<ul class="brk">${li}<li class="tot"><span>合計（${F.note||'10符未満切り上げ'}）</span><span>${roundTxt}</span></li></ul>`;
-  if($('#qs3').classList.contains('hidden')){
-    const {han,oya,tsumo}=q, fu=F.total;
-    $('#qq-p3').innerHTML = `<b>${oya?'親':'子'}</b>が <b>${q.yakuman?'役満':han+'翻'} ${fu}符</b> を <b>${tsumo?'ツモ':'ロン'}</b>${han>=5?'<br><span class="note">5翻以上なので符は点数に影響しません。</span>':''}`;
-    $('#qq-in').innerHTML = !tsumo ? `<label class="f">ロンの点数<input type="number" id="qq-a1" inputmode="numeric" step="100"></label>`
-      : oya ? `<label class="f">子それぞれの支払い（○○オール）<input type="number" id="qq-a1" inputmode="numeric" step="100"></label>`
-      : `<label class="f">子の支払い<input type="number" id="qq-a1" inputmode="numeric" step="100"></label><label class="f">親の支払い<input type="number" id="qq-a2" inputmode="numeric" step="100"></label>`;
-    document.querySelectorAll('#qq-in input').forEach(i=>i.addEventListener('keydown',e=>{ if(e.key==='Enter') qqCheck(); }));
-    show('#qs3',true); $('#qq-a1').focus();
-  }
+  q.dFu = `<h4>符の内訳${q.h.wait?`（待ち：${WAITN[q.h.wait]}）`:''}</h4><ul class="brk">${li}<li class="tot"><span>合計（${F.note||'10符未満切り上げ'}）</span><span>${roundTxt}</span></li></ul>`;
+  $('#qq-sum').insertAdjacentHTML('beforeend', sumItem('符',ok,F.total+'符',v+'符',q.dFu));
+  $('#qq-ofu').innerHTML='';
+  const {han,oya,tsumo}=q, fu=F.total;
+  $('#qq-p3').innerHTML = `<b>${oya?'親':'子'}</b>が <b>${q.yakuman?'役満':han+'翻'} ${fu}符</b> を <b>${tsumo?'ツモ':'ロン'}</b>${han>=5?'<br><span class="note">5翻以上なので符は点数に影響しません。</span>':''}`;
+  $('#qq-in').innerHTML = !tsumo ? `<label class="f">ロンの点数<input type="number" id="qq-a1" inputmode="numeric" step="100"></label>`
+    : oya ? `<label class="f">子それぞれの支払い（○○オール）<input type="number" id="qq-a1" inputmode="numeric" step="100"></label>`
+    : `<label class="f">子の支払い<input type="number" id="qq-a1" inputmode="numeric" step="100"></label><label class="f">親の支払い<input type="number" id="qq-a2" inputmode="numeric" step="100"></label>`;
+  document.querySelectorAll('#qq-in input').forEach(i=>i.addEventListener('keydown',e=>{ if(e.key==='Enter') qqCheck(); }));
+  show('#qs2',false); show('#qs3',true); $('#qq-a1').focus();
 }
 function qqCheck(){
   const q=QQ, {r,s}=steps(q.fu.total||30,q.han,q.oya,q.tsumo);
@@ -730,7 +770,10 @@ function qqCheck(){
   if(isNaN(a1) || (q.tsumo && !q.oya && isNaN(a2))){ $('#qq-out').innerHTML='<p class="verdict ng">点数を数字で入力してください。</p>'; return; }
   const ok = !q.tsumo ? a1===r.ron : q.oya ? a1===r.all : (a1===r.ko && a2===r.oyaPay);
   qqTally('pt',ok);
-  $('#qq-out').innerHTML = verdict(ok,`答えは${label(r,q.oya,q.tsumo)}${r.name?'（'+r.name+'）':''}`)+`<div class="calc-steps">${s.join('<br>')}</div>`;
+  const mine = !q.tsumo ? fmt(a1) : q.oya ? fmt(a1)+'オール' : fmt(a1)+'-'+fmt(a2);
+  $('#qq-sum').insertAdjacentHTML('beforeend', sumItem('点',ok,label(r,q.oya,q.tsumo)+(r.name?'（'+r.name+'）':''),mine,`<h4>点数の計算</h4><div class="calc-steps">${s.join('<br>')}</div>`));
+  $('#qq-out').innerHTML=''; show('#qs3',false);
+  $('#qq-detail').innerHTML = finalCard(ok, label(r,q.oya,q.tsumo)+(r.name?'（'+r.name+'）':''), mine, qqDone);
 }
 $('#qq-bhan').addEventListener('click',qqHan);
 $('#qq-han').addEventListener('keydown',e=>{ if(e.key==='Enter') qqHan(); });
@@ -1192,14 +1235,16 @@ function showWinQuiz(res,from,d,sticks){
   const box = openResult(`<h3 style="margin-top:0">${title}</h3>
     <div class="hand ghand"><div class="grp"><div class="ts">${res.closed.map(k=>tileHTML(k2t(k))).join('')}</div></div><div class="grp"><div class="ts">${tileHTML(k2t(res.winK),true)}</div></div>${melds}</div>
     <div class="chips">${chips}</div>
+    <div class="qsum" id="g-sum" aria-live="polite"></div>
     <div class="stage" id="gs1"><div class="row"><label class="f">翻数（ドラ込み${res.yakuman?'・役満は13':''}）<input type="number" id="g-ahan" inputmode="numeric" min="1"></label><button class="btn" type="button" id="g-bhan">答え合わせ</button></div><div id="g-ohan" aria-live="polite"></div></div>
     <div class="stage hidden" id="gs2"><div class="row"><label class="f">符（切り上げ後）<input type="number" id="g-afu" inputmode="numeric" step="5" min="20"></label><button class="btn" type="button" id="g-bfu">答え合わせ</button></div><div id="g-ofu" aria-live="polite"></div></div>
     <div class="stage hidden" id="gs3"><p class="q" id="g-p3"></p><div class="row" id="g-pin"></div><div class="row" style="margin-top:12px"><button class="btn" type="button" id="g-bpt">答え合わせ</button></div><div id="g-opt" aria-live="polite"></div></div>
+    <div id="g-detail"></div>
     <div class="stage hidden" id="gs4"><h3 style="margin-top:0">点数の移動</h3>${sticks?`<p class="note">供託リーチ棒${sticks}本（${fmt(sticks*1000)}点）も和了者が受け取ります。</p>`:''}${deltasHTML(d)}</div>
     <div class="row" style="margin-top:18px"><button class="btn sub" type="button" id="g-next">次の局へ</button></div>`);
   const q = id => box.querySelector(id);
   const done={};
-  const tallyG = (key,ok)=>{ if(done[key]) return; done[key]=true; stats.full[key].t++; if(ok) stats.full[key].c++; saveStats(); };
+  const tallyG = (key,ok)=>{ if(key in done) return; done[key]=ok; stats.full[key].t++; if(ok) stats.full[key].c++; saveStats(); };
   const toStage3 = () => {
     const r=score(fu||30,res.han,oya,ts);
     q('#g-p3').innerHTML = `<b>${oya?'親':'子'}</b>が <b>${res.yakuman?'役満':res.han+'翻'}${res.noFu?'':' '+fu+'符'}</b> を <b>${ts?'ツモ':'ロン'}</b>${res.han>=5?'<br><span class="note">5翻以上なので符は点数に影響しません。</span>':''}`;
@@ -1210,6 +1255,9 @@ function showWinQuiz(res,from,d,sticks){
     q('#g-pin').querySelectorAll('input').forEach(i=>i.addEventListener('keydown',e=>{ if(e.key==='Enter') chk3(); }));
     q('#g-a1').focus();
   };
+  const D={};
+  const sum = h => q('#g-sum').insertAdjacentHTML('beforeend',h);
+  const hide = id => q(id).classList.add('hidden');
   const chk1 = () => {
     const v=parseInt(q('#g-ahan').value,10);
     if(isNaN(v)){ q('#g-ohan').innerHTML='<p class="verdict ng">翻数を数字で入力してください。</p>'; return; }
@@ -1219,8 +1267,10 @@ function showWinQuiz(res,from,d,sticks){
       li += `<li><span>ドラ（${kName(t2k(nextTile(k2t(G.doraInd))))}）× ${res.doraN}</span><span>${res.doraN}翻</span></li>`;
       if(P.riichi) li += `<li><span>裏ドラ（${kName(t2k(nextTile(k2t(G.uraInd))))}）× ${res.uraN}</span><span>${res.uraN}翻</span></li>`;
     }
-    q('#g-ohan').innerHTML = verdict(ok,`答えは${res.yakuman?'役満':res.han+'翻'}`)+`<ul class="brk">${li}<li class="tot"><span>合計</span><span>${res.yakuman?'役満':res.han+'翻'}</span></li></ul>`;
-    if(res.noFu){ if(q('#gs3').classList.contains('hidden')){ q('#gs2').classList.remove('hidden'); q('#gs2').innerHTML='<p class="note">国士無双は符を数えません。</p>'; toStage3(); } return; }
+    const tot = res.yakuman?'役満':res.han+'翻';
+    D.han = `<h4>翻の内訳</h4><ul class="brk">${li}<li class="tot"><span>合計</span><span>${tot}</span></li></ul>`;
+    sum(sumItem('翻',ok,tot,v+'翻',D.han)); q('#g-ohan').innerHTML=''; hide('#gs1');
+    if(res.noFu){ D.fu='<p class="note">国士無双は符を数えません。</p>'; sum(sumItem('符',true,'なし','',D.fu)); toStage3(); return; }
     q('#gs2').classList.remove('hidden'); q('#g-afu').focus();
   };
   const chk2 = () => {
@@ -1229,9 +1279,9 @@ function showWinQuiz(res,from,d,sticks){
     const F=res.fu, ok=v===F.total; tallyG('fu',ok);
     const li=F.items.map(([a,b])=>`<li><span>${a}</span><span>${b}符</span></li>`).join('');
     const roundTxt = F.raw!==F.total ? `${F.raw}符 → ${F.total}符` : `${F.total}符`;
-    q('#g-ofu').innerHTML = verdict(ok,`答えは${F.total}符`) + (res.h.wait?`<p class="note" style="margin:4px 0 0">待ち：${WAITN[res.h.wait]}（いちばん高くなる取り方で計算）</p>`:'') +
-      `<ul class="brk">${li}<li class="tot"><span>合計（${F.note||'10符未満切り上げ'}）</span><span>${roundTxt}</span></li></ul>`;
-    if(q('#gs3').classList.contains('hidden')) toStage3();
+    D.fu = `<h4>符の内訳${res.h.wait?`（待ち：${WAITN[res.h.wait]}）`:''}</h4><ul class="brk">${li}<li class="tot"><span>合計（${F.note||'10符未満切り上げ'}）</span><span>${roundTxt}</span></li></ul>`;
+    sum(sumItem('符',ok,F.total+'符',v+'符',D.fu)); q('#g-ofu').innerHTML=''; hide('#gs2');
+    toStage3();
   };
   const chk3 = () => {
     const {r,s} = steps(fu||30,res.han,oya,ts);
@@ -1239,7 +1289,9 @@ function showWinQuiz(res,from,d,sticks){
     if(isNaN(a1) || (ts && !oya && isNaN(a2))){ q('#g-opt').innerHTML='<p class="verdict ng">点数を数字で入力してください。</p>'; return; }
     const ok = !ts ? a1===r.ron : oya ? a1===r.all : (a1===r.ko && a2===r.oyaPay);
     tallyG('pt',ok);
-    q('#g-opt').innerHTML = verdict(ok,`答えは${label(r,oya,ts)}${r.name?'（'+r.name+'）':''}`)+`<div class="calc-steps">${s.join('<br>')}</div>`;
+    const mine = !ts ? fmt(a1) : oya ? fmt(a1)+'オール' : fmt(a1)+'-'+fmt(a2);
+    sum(sumItem('点',ok,label(r,oya,ts)+(r.name?'（'+r.name+'）':''),mine,`<h4>点数の計算</h4><div class="calc-steps">${s.join('<br>')}</div>`)); q('#g-opt').innerHTML=''; hide('#gs3');
+    q('#g-detail').innerHTML = finalCard(ok, label(r,oya,ts)+(r.name?'（'+r.name+'）':''), mine, done);
     q('#gs4').classList.remove('hidden');
   };
   q('#g-bhan').addEventListener('click',chk1);
